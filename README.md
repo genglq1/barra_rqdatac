@@ -137,26 +137,7 @@ barra_rqdatac/
 | annual_reports | 年报缓存(EPS/营收,按股票×年份) | `get_pit_financials_ex` | EGRO/SGRO |
 | index_weights/{指数}.csv | 指数成分权重(可选) | `index_weights` | 持仓暴露分析 |
 
-### 3.6 与原项目(Tushare)字段映射对照
-
-| 基础宽表 | 原字段(Tushare) | rqdatac 接口 + 字段 | 单位处理 |
-|---|---|---|---|
-| stock_ret | pct_chg | `get_price_change_rate`(已是宽表) | 去掉原 ×0.01 |
-| stock_size | total_mv(万元) | `get_factor(market_cap)`(元) | **去掉 ×10000** |
-| stock_size_cir | circ_mv(万元) | `get_factor(a_share_market_val_in_circulation)` | 去掉 ×10000 |
-| stock_pe | pe_ttm | `get_factor(pe_ratio)` | TTM |
-| stock_pb | pb | `get_factor(pb_ratio)` | — |
-| stock_turnover | turnover_rate | `get_turnover_rate` 取 `today` 列 | 百分比 |
-| total_liab | total_liab | `get_factor(total_liabilities)` | 字段重命名 |
-| total_ncl | total_ncl | `get_factor(non_current_liabilities)` | 字段重命名 |
-| total_hldr_eqy... | total_hldr_eqy_exc_min_int | `get_factor(equity_parent_company)` | 字段重命名 |
-| n_cashflow_act | n_cashflow_act | `get_factor(cash_flow_from_operating_activities)` | 字段重命名 |
-| basic_eps | eps | `get_factor(basic_earnings_per_share)` | 字段重命名 |
-| revenue_ps | revenue_ps | `get_factor(operating_revenue)` | 用营收总额(sgro 用斜率/均值,股本不变时等价) |
-| rf | 国债10年/100 | `get_yield_curve(tenor='10Y')` | 去掉 /100 |
-| sw_l1 | index_classify+member | `get_instrument_industry(source='citics_2019')` | 中信一级(申万用 `shenwan_instrument_industry`) |
-
-rqdatac 3.4.x 接口要点(实跑确认):
+### 3.6 rqdatac 3.4.x 接口要点(实跑确认)
 - **无 `get_eod_factor`**,估值/财务统一用 `get_factor`(因子库,单字段一次,返回 MultiIndex)
 - 行情 `get_price(expect_df=True)` 返回 MultiIndex(order_book_id, date),需 reset_index 后 pivot
 - 涨跌幅 `get_price_change_rate(expect_df=True)` 已是宽表,直接合并无需 pivot
@@ -419,12 +400,3 @@ f = W · r                                    当日因子收益率
 | 行业约束 | 新约束下 Σ w_i·f_industry 最大误差 1.9e-7 ≈ 0 |
 | 非空率 | size/nlsize/btop/leverage 97.5%、liquidity 82.9%、beta 81.4%、RV 80.5%、momentum 63.7%、growth 42.7%、earnings_yield 36.4%(后两者受一致预期覆盖限制,见 5.4) |
 | 量级抽样 | 万科/保利 mlev≈+6.1(高杠杆)、茅台 mlev≈−0.5(低杠杆);茅台 EGRO≈15.7%/SGRO≈15.0%,符合经济直觉 |
-
----
-
-## 八、与原项目的关系
-
-- 原 `因子模型/` 与 `数据库/` **完全不动**,本项目独立隔离在 `barra_rqdatac/`。
-- 计算结构(因子公式、参数、合成权重)与原项目**同构**,因子口径以 Barra CNE-5 原文为准(见第五节对照),便于交叉验证。
-- 数据产出写入本项目 `data_store/`,不污染原 `数据库/`。
-- 原项目 `Barra_CNE5_技术文档.md` 与 `项目说明_面向改造.md` 仍可作为业务背景参考。
