@@ -1,0 +1,51 @@
+# ============================================================================
+# CNE-5 风格因子合成权重
+# ============================================================================
+# 来源:原 barra_cne5.py get_barra_cne_5() 中的硬编码权重。
+# 合成规则:风格因子 = Σ(权重 × 描述因子),描述因子取自 data_store/factors/cne5/
+
+# 9 大风格因子 -> {描述因子: 权重}
+style_factors:
+
+  # 单描述因子的风格因子(直接取值,无需合成)
+  size:                # Size: 流通市值对数
+    lncap: 1.0
+  beta:                # Beta
+    beta: 1.0
+  momentum:            # Momentum
+    rstr: 1.0
+  non_linear_size:     # Non-Linear Size
+    nlsize: 1.0
+  book_to_price:       # BTOP
+    btop: 1.0
+
+  # 多描述因子合成的风格因子
+  residual_volatility:                 # 残差波动率
+    dastd: 0.74
+    cmra: 0.16
+    hsigma: 0.10
+
+  liquidity:                           # 流动性
+    stom: 0.35
+    stoq: 0.35
+    stoa: 0.30
+
+  earnings_yield:                      # 盈利收益率(Barra CNE-5 原文三分量)
+    epibs: 0.68      # 一致预期EPS_FTM/价格(分析师预期,主分量)
+    cetop: 0.21      # 经营现金流TTM/市值
+    etop: 0.11       # 归母净利润TTM/总市值
+
+  growth:                              # 成长(0.47 SGRO + 0.24 EGRO + 0.18 EGIBS + 0.11 EGIBS_s)
+    egro: 0.24
+    sgro: 0.47
+    egibs: 0.18       # 分析师预测长期净利润增长率(rqdatac t3;原文 Long-term Predicted Earnings Growth)
+    egibs_s: 0.11     # 分析师预测短期净利润增长率(rqdatac ftm;原文 Short-term Predicted Earnings Growth)
+
+  leverage:                            # 杠杆
+    mlev: 0.38
+    dtoa: 0.35
+    blev: 0.27
+
+# 注:CNE-5 完整风格因子顺序(用于因子收益率回归的列对齐):
+# [country, 行业因子..., size, beta, momentum, residual_volatility,
+#  non_linear_size, book_to_price, liquidity, earnings_yield, growth, leverage]

@@ -1,0 +1,63 @@
+# ============================================================================
+# Barra CNE-5/CNE-6 项目配置 (rqdatac 数据源版本)
+# ============================================================================
+# 说明:所有路径相对 barra_rqdatac/ 项目根目录配置。
+# rqdatac license 需填入下方 rqdatac.license 字段后方可实跑。
+
+# ------------------------- rqdatac 连接配置 ---------------------------------
+rqdatac:
+  # Ricequant license key (邮件中获取的一长串 key)
+  # 留空时运行会报错;实跑前请填入。⚠️ 真实 key 勿提交到仓库
+  license: ""
+  username: "license"
+  # 私有部署时可选(默认走米筐公有云,无需配置)
+  # uri: "rqdatac.ricequant.com"
+  # port: 16011
+  # 单次 API 请求股票数(全市场约 5000 只,分批避免超限)
+  batch_size: 800
+
+# ------------------------- 路径配置(相对项目根) ----------------------------
+paths:
+  # 数据产出根目录
+  data_store: "data_store"
+  base: "data_store/base"             # 基础宽表(行情/估值/财务)
+  factors: "data_store/factors"        # 描述因子(按版本子目录)
+  model: "data_store/model"            # 模型产出(cne_5/f_ret,按版本子目录)
+
+  # 当前版本因子/模型产出子目录(由 pipeline 按 version 拼接)
+  # 实际路径 = factors_root/{version}/  和  model_root/{version}/
+
+# ------------------------- 市场与指数配置 -----------------------------------
+market:
+  # 基准指数(中证全指,用于 Beta 因子回归)
+  benchmark: "000985.XSHG"
+  # 成分指数(用于持仓暴露分析 / 指数权重)
+  component_indices:
+    - "000300.XSHG"   # 沪深300
+    - "000905.XSHG"   # 中证500
+    - "000852.XSHG"   # 中证1000
+
+  # 无风险利率期限
+  risk_free_tenor: "10Y"   # 10年期国债
+
+  # 行业分类源(优先用此源;若 rqdatac 不支持则自动回退)
+  # rqdatac 3.4.x 合法值: 'citics_2019'(中信一级,默认)/ 'citis' / 'gildata'
+  # 申万行业用独立接口(source 传 'sws' 触发 shenwan_instrument_industry)
+  # 现用中信一级行业(citics_2019),约 30 个一级行业
+  industry_source: "citics_2019"
+  # 备选行业源(当 industry_source 取数失败时,按此顺序自动尝试)
+  industry_fallback: ["sws", "gildata", "citis"]
+
+# ------------------------- 时间范围 -----------------------------------------
+date_range:
+  # 历史数据起始日(各因子函数默认起始)
+  start_date: "2010-01-01"
+  # end_date 留空则取"今天与最新数据日"的较小值
+
+# ------------------------- 下游分析输入(可选) -------------------------------
+analysis:
+  # 持仓暴露分析:估值表目录(按需填写实际路径)
+  # holding_tables_dir: "data_store/holdings"
+  # 收益归因:基金净值 / 纯因子收益 Excel 路径(按需填写)
+  # fund_nav_file: ""
+  # factor_return_file: ""

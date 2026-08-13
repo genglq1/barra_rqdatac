@@ -1,0 +1,27 @@
+# Barra CNE-5/CNE-6 项目依赖 (rqdatac 数据源版本)
+# 安装: pip install -r requirements.txt
+
+# 数据源
+rqdatac                   # 米筐 Ricequant 数据 SDK(最新约 3.5.x)
+
+# 数据处理与科学计算
+pandas>=1.5.0
+numpy>=1.21.0
+scipy>=1.7.0
+statsmodels>=0.13.0       # WLS 加权回归
+
+# 因子计算辅助
+pyfinance>=0.2.0          # rolling_windows 工具
+tqdm>=4.60.0              # 进度条
+
+# 配置与 IO
+pyyaml>=6.0               # config yaml 解析
+openpyxl>=3.0.0           # 估值表/净值 Excel 读取
+xlrd>=2.0.1               # 旧 .xls 读取(如需)
+
+# 可视化(下游分析)
+matplotlib>=3.5.0         # 收益归因作图
+
+# 注意:
+# - pyfinance 依赖 pandas/numpy,版本需兼容
+# - 若需 akshare(原项目 risk_budget 测试用),可另装: pip install akshare
