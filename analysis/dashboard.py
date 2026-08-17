@@ -64,6 +64,15 @@ def load_industry_names():
     return dict(zip(m["industry_code"].astype(str), m["industry_name"]))
 
 
+@st.cache_data(ttl=600)
+def load_benchmark():
+    """基准指数日收益(中证全指 Rt.csv);country 纯因子与其对比,差异=风格中性化调整。"""
+    path = os.path.join(get_path("base"), "Rt.csv")
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)["Rt"]
+
+
 def _list_files(folder, patterns=(".xlsx", ".xls", ".csv")):
     full = os.path.join(get_path("data_store"), folder)
     if not os.path.isdir(full):
@@ -103,19 +112,25 @@ def tab_factor_returns(f_ret):
         if d_start > d_end:
             d_start, d_end = d_end, d_start
             st.warning("起始晚于结束,已自动调换")
-        group = st.radio("因子组", ["风格因子", "行业因子"], horizontal=True)
+        group = st.radio("因子组", ["风格因子", "行业因子", "市场因子(country)"], horizontal=True)
         chart = st.radio("图表", ["累计收益", "月度收益热力图", "滚动年化波动"],
                          horizontal=True)
         if group == "风格因子":
             default = style_cols
             options = style_cols
             labels = {c: f"{STYLE_LABELS.get(c, c)}({c})" for c in style_cols}
-        else:
+        elif group == "行业因子":
             default = industry_cols
             options = industry_cols
             labels = {c: f"{ind_names.get(c, c)}({c})" for c in industry_cols}
+        else:
+            default = ["country"]
+            options = ["country"]
+            labels = {"country": "country(市场因子)"}
         sel = st.multiselect("因子(可多选)", options, default=default,
                              format_func=lambda c: labels.get(c, c))
+        overlay_bench = (chart == "累计收益" and load_benchmark() is not None
+                         and st.checkbox("叠加中证全指对照(Rt)", value=True))
 
     if not sel:
         st.info("请在左侧选择至少一个因子")
@@ -128,9 +143,18 @@ def tab_factor_returns(f_ret):
         for c in sel:
             fig.add_trace(go.Scatter(x=cum.index, y=cum[c], mode="lines",
                                      name=labels.get(c, c)))
+        if overlay_bench:
+            bench = load_benchmark().loc[d_start:d_end]
+            bench_cum = (1 + bench).cumprod() - 1
+            fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum.values,
+                                     name="中证全指(基准)",
+                                     line=dict(dash="dash", color="grey", width=2)))
         fig.update_layout(title=f"因子累计收益({d_start} ~ {d_end})",
                           yaxis_title="累计收益", hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
+        if overlay_bench and "country" in sel:
+            st.caption("注:country 为纯市场因子(√市值加权+风格/行业中性),"
+                       "与基准的差 = √市值加权偏离 + 风格暴露调整项,属 Barra 口径特征。")
     elif chart == "月度收益热力图":
         monthly = sub.resample("ME").sum()
         monthly.index = monthly.index.strftime("%Y-%m")
