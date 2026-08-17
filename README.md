@@ -471,3 +471,41 @@ python -m analysis.attribution "data_store/净值表/极量精选指增_净值�
 | 因子收益量级 | 逐日 \|f\| 最大值中位数 0.022、极值 0.09;country 日均值 0.07%/std 1.1%,符合 A 股波动 |
 | 非空率 | size/nlsize/btop/leverage 97.5%、liquidity 82.9%、beta 81.4%、RV 80.5%、momentum 63.7%、growth 42.7%、earnings_yield 36.4%(后两者受一致预期覆盖限制,见 5.4) |
 | 量级抽样 | 万科/保利 mlev≈+6.1(高杠杆)、茅台 mlev≈−0.5(低杠杆);茅台 EGRO≈15.7%/SGRO≈15.0%,符合经济直觉 |
+
+### 因子收益正确性交叉检验(独立于回归自身的验证)
+
+| 检验 | 结果 |
+|---|---|
+| **country 恒等式**(决定性) | country 应 = √流通市值加权市场收益 − Σ f_s·x̄_s^V(风格暴露加权均值贡献);回归 corr=1.0000 / R²=1.000 / 斜率1.000 / 截距 0 |
+| size 纯因子 | 与独立构造"小盘30%−大盘30%"√市值加权价差 corr **−0.868**(符号正确),年化方向一致(size +6.5% ↔ 价差 −21.6%,均为大盘跑赢) |
+| beta 纯因子 | 与高/低 beta 20% 分层等权价差 corr **0.934** |
+| country vs 中证全指 | corr 0.988;系统差(样本期约 +15.9%/年)已由恒等式精确解释:√市值加权偏小盘 + 风格贡献剥离给 size 等因子,属纯因子口径特征而非误差 |
+| 归因恒等式 | 每日 Alpha+国家+行业+风格 = 当日净值收益,最大误差 2.8e-17(机器精度) |
+
+---
+
+## 八、与其他开源 Barra 实现的口径对比
+
+对比时数值"对不上"基本来自下表口径差异,而非计算错误;逐项对齐后再比较:
+
+| # | 口径点 | 本项目(依据) | 常见开源实现 | 影响 |
+|---|---|---|---|---|
+| 1 | country 定义 | 纯市场因子:√市值加权 + 风格/行业中性(Barra 原文) | 大盘指数或简单加权市场收益 | 与基准存在系统差(见第七节恒等式),country/行业列不可比 |
+| 2 | Size 符号约定 | z(ln 总市值),**大市值为正**(原文 lncap) | 不少项目小盘为正 | 曲线呈镜像 |
+| 3 | 行业分类与共线性 | 中信一级 30 个 + 约束 Σ w_i·f_industry = 0(原文) | 申万 31 个;删一个哑变量或无约束(如 `sm.WLS` + 全量哑变量 + 事后 VIF) | 行业/country 不可比,风格数值亦有差异 |
+| 4 | WLS 权重 | √流通市值(原文) | 流通市值加权/等权 | 风格收益数值差异 |
+| 5 | 估计域 | 全市场 ~5200 只(有行业 + 当日市值 + 当日收益) | 指数成分(300/500/800) | size 因子尤其敏感 |
+| 6 | 暴露预处理 | 缩尾 + 流通市值加权标准化 + 正交化(RV⊥[beta,size]、liquidity⊥size、nlsize⊥size,原文) | 直接回归原始暴露,未标准化/正交化 | 因子间收益转移(如波动收益记到 beta 头上) |
+| 7 | 缺失暴露 | 填 0 中性(Barra 惯例) | 剔除该股票 | 样本结构与覆盖差异 |
+| 8 | 数据细节 | 总市值/后复权/中信 2019 版 | 流通市值、复权方式、行业版本各异 | 细微差异 |
+
+面板"因子收益"Tab 已内置中证全指对照线(叠加开关,选中 country 时附口径说明),
+country 与基准的差值可直接用第七节恒等式解释。
+
+参考项目:
+
+- [YTZzzzz/Barra_CNE5](https://github.com/YTZzzzz/Barra_CNE5)(Wind 数据,`regression.py` 为 WLS+哑变量引擎)
+- [xinyue6688/Barra-CNE5](https://github.com/xinyue6688/Barra-CNE5)
+- [mangoquant/Barra](https://github.com/mangoquant/Barra)
+- [ShiliangZhang-nku/Barra_CNE6](https://github.com/ShiliangZhang-nku/Barra_CNE6)(CNE-6 版本)
+- [知乎:Barra 纯因子收益率的 Python 实现](https://zhuanlan.zhihu.com/p/96536721)
