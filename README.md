@@ -401,6 +401,20 @@ python -m analysis.exposure index data_store/base/index_weights/000300.XSHG.csv
 实跑样例(赫富1000指增 2026-04-30,592 只股票、仓位 92.3%):
 size -1.33 / non_linear_size +0.51(显著小盘,符合 1000 指增特征)。
 
+### 基于净值的收益归因(analysis/attribution.py)
+
+从净值序列文件提取日度净值,对 CNE-5 因子收益率做 252 日滚动 OLS,
+逐日分解 Alpha/国家/行业/风格贡献(每日四项之和 = 当日净值收益,机器精度恒等):
+
+```bash
+python -m analysis.attribution "data_store/净值表/极量精选指增_净值序列_20260703.xlsx" [--window 252] [--show]
+```
+
+- 净值文件格式:表头第 0 行,日期列(净值日期/日期/估值日期)+ 净值列
+  (优先单位净值;单位≠累计时提示分红并改用累计净值近似),Excel/CSV 均可;
+- 产出(data_store/analysis/):归因明细 CSV、累计贡献 CSV、归因对比 PNG;
+- 年化贡献摘要打印,合计与净值年化严格一致。
+
 ### 加一个新风格因子(如 LongTermReversal)
 1. `factors/cne5/reversal.py` 写计算函数(复用 `factors/common.py` 工具)
 2. `factors/cne5/registry.py` 注册一行:`"reversal": {"func": ..., "outputs": [...], "depends_on": [...]}`
