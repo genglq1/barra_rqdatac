@@ -21,6 +21,8 @@ xlrd>=2.0.1               # 旧 .xls 读取(如需)
 
 # 可视化(下游分析)
 matplotlib>=3.5.0         # 收益归因作图
+streamlit>=1.30.0         # 可视化面板(streamlit run analysis/dashboard.py)
+plotly>=5.0.0             # 面板交互图表
 
 # 注意:
 # - pyfinance 依赖 pandas/numpy,版本需兼容

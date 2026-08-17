@@ -196,7 +196,9 @@ def calc_fund_exposure(holding_file, value_date=None, version="cne5", save=True)
         version: 因子版本
         save: True 时结果落盘 data_store/analysis/
     返回:
-        Series, index=各风格因子(加权暴露值)
+        (exposure, meta):
+        exposure - Series, index=各风格因子(加权暴露值)
+        meta     - dict: value_date/position/n_stocks/n_covered/factor_date/loose_fallback
     """
     factor = _load_factor(version)
     weights, meta = _parse_valuation_table(holding_file, value_date)
@@ -211,6 +213,8 @@ def calc_fund_exposure(holding_file, value_date=None, version="cne5", save=True)
           f"{'(宽松回退解析)' if meta['loose_fallback'] else ''}")
     if n_covered < meta["n_stocks"]:
         print(f"⚠️  {meta['n_stocks'] - n_covered} 只股票无因子数据(未覆盖/停牌过久),按 0 中性暴露计入")
+    meta["n_covered"] = n_covered
+    meta["factor_date"] = used_date
 
     exposure = pd.Series(dtype=float)
     for factor_name in fac.columns:
@@ -224,7 +228,7 @@ def calc_fund_exposure(holding_file, value_date=None, version="cne5", save=True)
         exposure.rename("exposure").to_csv(out_path, encoding="utf-8-sig")
         print(f"暴露结果已保存: {out_path}")
 
-    return exposure
+    return exposure, meta
 
 
 def calc_index_exposure(index_weights_file, version="cne5"):
@@ -295,7 +299,7 @@ def main():
     args = parser.parse_args()
 
     if args.cmd == "fund":
-        exposure = calc_fund_exposure(args.file, args.date)
+        exposure, _ = calc_fund_exposure(args.file, args.date)
     else:
         exposure = calc_index_exposure(args.file)
     print()

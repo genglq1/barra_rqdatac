@@ -401,6 +401,25 @@ python -m analysis.exposure index data_store/base/index_weights/000300.XSHG.csv
 实跑样例(赫富1000指增 2026-04-30,592 只股票、仓位 92.3%):
 size -1.33 / non_linear_size +0.51(显著小盘,符合 1000 指增特征)。
 
+### 可视化面板(analysis/dashboard.py,Streamlit)
+
+```bash
+# 项目根目录执行,浏览器自动打开
+streamlit run analysis/dashboard.py
+```
+
+三个 Tab:
+- **因子收益**:日期区间/因子组(风格 10 个、行业 30 个)筛选,累计收益曲线、
+  月度收益热力图、滚动 63 日年化波动、年化收益/波动/夏普汇总表;
+- **持仓暴露**:选择或上传估值表 -> 10 大风格因子暴露柱状图(±0.5/±1 参考线、
+  正负着色),估值日/股票数/覆盖/仓位指标卡,可叠加基准指数暴露对比
+  (需先下载 index_weights);
+- **净值归因**:选择或上传净值序列 + 回归窗口滑块 -> 累计归因曲线、
+  10 风格因子累计贡献拆分、年化贡献表与排序图,恒等式校验实时展示。
+
+计算层复用 exposure/attribution 模块(CLI 已验证),重计算结果缓存(cne_5
+加载与归因 OLS 按 ttl=10 分钟缓存),交互切换不重算。
+
 ### 基于净值的收益归因(analysis/attribution.py)
 
 从净值序列文件提取日度净值,对 CNE-5 因子收益率做 252 日滚动 OLS,
