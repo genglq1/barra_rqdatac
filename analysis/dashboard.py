@@ -92,9 +92,17 @@ def tab_factor_returns(f_ret):
 
     with st.sidebar:
         st.subheader("因子收益筛选")
-        d0, d1 = f_ret.index.min(), f_ret.index.max()
-        dates = st.slider("日期区间", min_value=d0.date(), max_value=d1.date(),
-                          value=(max(d0.date(), (d1 - pd.Timedelta(days=730)).date()), d1.date()))
+        date_strs = [d.strftime("%Y-%m-%d") for d in f_ret.index]
+        default_start = date_strs[max(0, len(date_strs) - 485)]   # 默认近2年(约485交易日)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            d_start = st.selectbox("起始日期", date_strs,
+                                   index=date_strs.index(default_start))
+        with col_b:
+            d_end = st.selectbox("结束日期", date_strs, index=len(date_strs) - 1)
+        if d_start > d_end:
+            d_start, d_end = d_end, d_start
+            st.warning("起始晚于结束,已自动调换")
         group = st.radio("因子组", ["风格因子", "行业因子"], horizontal=True)
         chart = st.radio("图表", ["累计收益", "月度收益热力图", "滚动年化波动"],
                          horizontal=True)
@@ -112,8 +120,7 @@ def tab_factor_returns(f_ret):
     if not sel:
         st.info("请在左侧选择至少一个因子")
         return
-    sub = f_ret.loc[str(dates[0]):str(dates[1]), sel]
-    sub.name = "所选区间因子日收益"
+    sub = f_ret.loc[d_start:d_end, sel]
 
     if chart == "累计收益":
         cum = (1 + sub).cumprod() - 1
@@ -121,7 +128,7 @@ def tab_factor_returns(f_ret):
         for c in sel:
             fig.add_trace(go.Scatter(x=cum.index, y=cum[c], mode="lines",
                                      name=labels.get(c, c)))
-        fig.update_layout(title=f"因子累计收益({dates[0]} ~ {dates[1]})",
+        fig.update_layout(title=f"因子累计收益({d_start} ~ {d_end})",
                           yaxis_title="累计收益", hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
     elif chart == "月度收益热力图":
@@ -132,7 +139,7 @@ def tab_factor_returns(f_ret):
             y=[labels.get(c, c) for c in sel],
             colorscale="RdYlGn", zmid=0, texttemplate=".1%",
             textfont_size=9))
-        fig.update_layout(title=f"月度因子收益热力图({dates[0]} ~ {dates[1]})")
+        fig.update_layout(title=f"月度因子收益热力图({d_start} ~ {d_end})")
         st.plotly_chart(fig, use_container_width=True)
     else:
         roll = sub.rolling(63).std() * np.sqrt(242)
@@ -144,7 +151,8 @@ def tab_factor_returns(f_ret):
                           hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
 
-    # 绩效汇总
+    # 绩效汇总(先按列名索引构建再 rename;若构造时传 index=中文标签,
+    # Series 原索引是因子列名,reindex 会把全部值变 NaN)
     n_days = len(sub)
     cum_ret = (1 + sub).cumprod().iloc[-1] - 1
     ann_ret = (1 + cum_ret) ** (242 / max(n_days, 1)) - 1
@@ -154,7 +162,7 @@ def tab_factor_returns(f_ret):
         "年化收益": ann_ret.map("{:.2%}".format),
         "年化波动": ann_vol.map("{:.2%}".format),
         "夏普(0利率)": (ann_ret / ann_vol.replace(0, np.nan)).map("{:.2f}".format),
-    }, index=[labels.get(c, c) for c in sel])
+    }).rename(index=lambda c: labels.get(c, c))
     st.dataframe(summary, use_container_width=True)
 
 
