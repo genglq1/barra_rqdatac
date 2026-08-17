@@ -105,7 +105,7 @@ barra_rqdatac/
 | total_liab | 总负债 TD | `get_factor(total_liabilities)` | dtoa |
 | total_ncl | 非流动负债 LD | `get_factor(non_current_liabilities)` | mlev / blev |
 | total_hldr_eqy_exc_min_int | 归母权益 BE | `get_factor(equity_parent_company)` | blev |
-| oth_eqt_tools_p_shr | 优先股 PE | `get_factor(oth_eqt_tools_p_shr)`(rqdatac 不提供,按 0) | mlev / blev |
+| oth_eqt_tools_p_shr | 优先股 PE | 不下载(因子库不提供,leverage 按 0 兜底) | mlev / blev |
 | n_cashflow_act | 经营活动现金流净额 | `get_factor(cash_flow_from_operating_activities)` | —(扩展用) |
 | basic_eps | 基本每股收益 | `get_factor(basic_earnings_per_share)` | egro(年报回归) |
 | revenue_ps | 营业收入(总额) | `get_factor(operating_revenue)` | sgro(斜率/均值,见 5.2.8) |
@@ -131,7 +131,7 @@ barra_rqdatac/
 |---|---|---|---|
 | rf | 10 年期国债收益率 | `get_yield_curve(tenor='10Y')` | 无风险利率(年化小数,因子内 /365) |
 | Rt | 中证全指(000985.XSHG)日收益率 | `get_price_change_rate` | Beta 回归的市场组合代理 |
-| sw_l1 | 行业归属(默认中信一级 citics_2019,约 30 个;可切申万) | `get_instrument_industry(source=..., level=1)` | 因子收益率的行业哑变量 |
+| industry_l1 | 行业归属(默认中信一级 citics_2019,约 30 个;可切申万;文件名源无关,实际来源见 source 列) | `get_instrument_industry(source=..., level=1)` | 因子收益率的行业哑变量 |
 | trade_cal | 沪深交易日历(含年/季/月/周派生列) | `get_trading_dates` | 日频对齐、年报生效日映射 |
 | all_instruments | 全 A 股清单 | `all_instruments(type='CS')` | 股票池 |
 | annual_reports | 年报缓存(EPS/营收,按股票×年份) | `get_pit_financials_ex` | EGRO/SGRO |
@@ -225,7 +225,18 @@ W = R · (R'X'VXR')⁻¹ · R'X'V
 f = W · r                                    当日因子收益率
 ```
 
-产出 `f_ret.csv`(index=日期,列=[country, 行业…, 风格…] 共 41 列)。矩阵求逆失败的交易日跳过。
+**每日回归样本构建(三层防御,Barra 规范)**:
+1. **估计域**:有行业归属 + 当日有流通市值 + 当日有收益(停牌股剔除)的股票,样本 ~4400-5200 只;
+2. **缺失暴露填 0**:风格因子已截面标准化,0 = 截面均值 = 中性暴露。不再要求 10 因子全覆盖
+   (旧版 dropna 使样本萎缩到一致预期覆盖的 ~1400 只,小行业被整体剔空导致矩阵奇异/垃圾值);
+3. **动态列**:当日全空的风格列(如 momentum 预热期)与空行业不进入当日回归,
+   行业哑变量与约束 R 基于当日最终样本自洽计算;
+4. **数值防御**:求逆前检查条件数(阈值 1e10),超过阈值或 inv 奇异时改用 pinv 最小范数解并告警,
+   条件数非有限则跳过该日——杜绝裸 inv 接近奇异时静默返回垃圾值。
+
+产出 `f_ret.csv`(index=日期,列=[country, 行业…, 风格…] 共 41 列)。
+回归起始日默认 `config/date_range.factor_return_start_date`(2022-01-01:
+momentum 需 504 个交易日预热,行情数据自 2020-01 起,更早日期该列全空),`--start` 可覆盖。
 
 ---
 
@@ -365,6 +376,31 @@ f = W · r                                    当日因子收益率
 
 ## 六、扩展指南(核心价值)
 
+### 估值表风格暴露测算(analysis/exposure.py)
+
+对真实私募 4 级科目估值表(样例见 `data_store/估值表/`)计算 10 大风格因子暴露:
+
+```bash
+# 估值表 -> 基金股票部分暴露(估值日期自动从表内提取,结果存 data_store/analysis/)
+python -m analysis.exposure fund "data_store/估值表/SEZ753_赫富1000指数增强一号_4级科目估值表_20260430.xls"
+
+# 指数成分权重 -> 指数暴露(需先 data 层下载 index_weights)
+python -m analysis.exposure index data_store/base/index_weights/000300.XSHG.csv
+```
+
+适配要点:
+- 股票持仓行 = 14 位 4 级科目码(`1102` + 2 位账户/板块 + `01` 主仓 + 6 位股票代码),
+  仅取 x01 主仓行,天然排除 x99 估值增值行与红利税科目;信用账户/科创板同样匹配;
+- 权重取"市值占净值%"(百分数),股票内归一化,暴露口径为"股票部分"(打印仓位注明,
+  股指期货 3102/现金等非股票科目不纳入);
+- 6 位代码直接加 rqdatac 后缀(.XSHG/.XSHE/.XBJG)与 cne_5.csv 对齐;
+  merge 不到因子的股票按 0 中性暴露计入并告警;
+- 估值日非交易日时回退最近因子日;指数入口单日权重取最近"数据完整"因子日
+  (最新交易日估值字段可能尚未发布)。
+
+实跑样例(赫富1000指增 2026-04-30,592 只股票、仓位 92.3%):
+size -1.33 / non_linear_size +0.51(显著小盘,符合 1000 指增特征)。
+
 ### 加一个新风格因子(如 LongTermReversal)
 1. `factors/cne5/reversal.py` 写计算函数(复用 `factors/common.py` 工具)
 2. `factors/cne5/registry.py` 注册一行:`"reversal": {"func": ..., "outputs": [...], "depends_on": [...]}`
@@ -395,8 +431,9 @@ f = W · r                                    当日因子收益率
 | 验证项 | 结果 |
 |---|---|
 | 描述因子 | 22 个全部落盘,10 大风格因子 761 万行(cne_5.csv) |
-| 因子收益率 | 1071 个交易日 × 41 列(country + 30 行业 + 10 风格) |
+| 因子收益率 | 1117 个交易日(2022-01 起)× 41 列(country + 30 行业 + 10 风格),逐日样本 4400~5200 只 |
 | 正交化效果 | 正交后 RV 与 beta/size、liquidity 与 size 的 √市值加权截面相关(均值绝对值)< 0.01 |
-| 行业约束 | 新约束下 Σ w_i·f_industry 最大误差 1.9e-7 ≈ 0 |
+| 行业约束 | 新约束下 Σ w_i·f_industry 最大误差 4.0e-6 ≈ 0(2022-01~2026-08 逐日抽样重算) |
+| 因子收益量级 | 逐日 \|f\| 最大值中位数 0.022、极值 0.09;country 日均值 0.07%/std 1.1%,符合 A 股波动 |
 | 非空率 | size/nlsize/btop/leverage 97.5%、liquidity 82.9%、beta 81.4%、RV 80.5%、momentum 63.7%、growth 42.7%、earnings_yield 36.4%(后两者受一致预期覆盖限制,见 5.4) |
 | 量级抽样 | 万科/保利 mlev≈+6.1(高杠杆)、茅台 mlev≈−0.5(低杠杆);茅台 EGRO≈15.7%/SGRO≈15.0%,符合经济直觉 |

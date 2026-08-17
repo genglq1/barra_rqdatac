@@ -6,19 +6,21 @@ rqdatac 3.4.x 仅 get_pit_financials_ex 支持利润表字段;资产负债表、
 在因子库 get_factor 中提供(基于最新已披露财报填充到日频,已是 PIT 对齐)。
 故本模块统一用 get_factor 取所有财务字段。
 
-字段映射(rqdatac 因子库字段 -> 原项目文件名):
-    资产负债表:
-        total_assets                        -> total_assets.csv
-        oth_eqt_tools_p_shr                 -> oth_eqt_tools_p_shr.csv(优先股,因子库可能不提供)
-        total_liabilities                   -> total_liab.csv
+    字段映射(rqdatac 因子库字段 -> 原项目文件名):
+        资产负债表:
+            total_assets                        -> total_assets.csv
+            total_liabilities                   -> total_liab.csv
         non_current_liabilities             -> total_ncl.csv
         equity_parent_company               -> total_hldr_eqy_exc_min_int.csv
-    现金流量表:
-        cash_flow_from_operating_activities -> n_cashflow_act.csv
-    利润表:
-        basic_earnings_per_share            -> basic_eps.csv
-        operating_revenue                   -> revenue_ps.csv
-            (rqdatac 无 revenue_per_share,用营收总额;growth 的 sgro 用斜率/均值,结果等价)
+        现金流量表:
+            cash_flow_from_operating_activities -> n_cashflow_act.csv
+        利润表:
+            basic_earnings_per_share            -> basic_eps.csv
+            operating_revenue                   -> revenue_ps.csv
+                (rqdatac 无 revenue_per_share,用营收总额;growth 的 sgro 用斜率/均值,结果等价)
+
+    注:优先股 oth_eqt_tools_p_shr 因子库不提供,不再尝试下载(leverage 因子按 0 兜底);
+    若留在清单里,其文件永远缺失会使 min(latest_dates) 恒为 start_date,导致财务字段每次全量重拉。
 """
 
 import datetime as dt
@@ -27,10 +29,10 @@ from .client import init_rqdatac
 from . import io, universe
 
 # rqdatac 因子库字段 -> 产出文件名
+# 注:不含 oth_eqt_tools_p_shr(优先股),因子库不提供,leverage 因子按 0 处理
 FIN_FIELDS = {
     # 资产负债表
     "total_assets": "total_assets.csv",
-    "oth_eqt_tools_p_shr": "oth_eqt_tools_p_shr.csv",
     "total_liabilities": "total_liab.csv",
     "non_current_liabilities": "total_ncl.csv",
     "equity_parent_company": "total_hldr_eqy_exc_min_int.csv",

@@ -117,3 +117,9 @@ def get_batch_size():
 def get_start_date():
     """历史数据默认起始日(来自 settings.yaml date_range.start_date)。"""
     return get_settings().get("date_range", {}).get("start_date", "2010-01-01")
+
+
+def get_factor_return_start_date():
+    """因子收益率回归默认起始日(date_range.factor_return_start_date,缺省 2022-01-01)。"""
+    return get_settings().get("date_range", {}).get(
+        "factor_return_start_date", "2022-01-01")

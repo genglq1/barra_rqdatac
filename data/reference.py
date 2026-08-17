@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-参考数据:国债利率 / 指数行情 / 申万行业 / 指数权重
+参考数据:国债利率 / 指数行情 / 行业归属 / 指数权重
 ==================================================
 对应原项目 data_process 的 updata_rf_data / updata_index_ret_data,
-以及 data_download 的申万行业 / 指数权重。
+以及 data_download的行业 / 指数权重。
 
 rqdatac 实现:
     - 无风险利率:  get_yield_curve(tenor='10Y')  返回小数年化(原项目/100,口径一致)
     - 指数收益率:  get_price_change_rate(指数代码)
-    - 申万行业:    get_industry_mapping(source='sw2021')
+    - 行业归属:    get_instrument_industry(source=..., level=1)(个股→行业)
     - 指数成分权重: index_weights(指数代码)
 
 产出(data_store/base/):
     rf.csv         无风险日利率(10Y国债,小数)
     Rt.csv         基准指数(中证全指)日收益率(小数)
-    sw_l1.csv      申万一级行业归属(trade_date, stock_code, industry_code, industry_name)
+    industry_l1.csv 一级行业归属(stock_code, industry_code, industry_name, source;
+                   文件名源无关,实际来源见 source 列与运行日志,默认中信 citics_2019)
     index_weights/{指数}.csv  指数成分权重(可选)
 """
 
@@ -97,7 +98,7 @@ def update_industry(date=None):
 
     参数:
         date: 指定日期的行业快照;None 取最新
-    产出: data_store/base/sw_l1.csv
+    产出: data_store/base/industry_l1.csv
         列: stock_code(Wind风格), industry_code, industry_name, source
     """
     rqdatac = init_rqdatac()
@@ -187,9 +188,9 @@ def update_industry(date=None):
         "source": used_source,
     })
 
-    out_path = os.path.join(get_path("base"), "sw_l1.csv")
+    out_path = os.path.join(get_path("base"), "industry_l1.csv")
     result.to_csv(out_path, index=False)
-    print(f"sw_l1.csv: 更新完成 ({len(result)} 只,源:{used_source})")
+    print(f"industry_l1.csv: 更新完成 ({len(result)} 只,源:{used_source})")
     return result
 
 

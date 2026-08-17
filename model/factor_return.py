@@ -10,9 +10,18 @@
     W = R · (R'X'VXR')⁻¹ · R'X'V            因子收益率加权矩阵
     f = W · r                                当日因子收益率
 
+每日回归样本构建(三层防御,Barra 规范):
+    ① 估计域:有行业归属 + 当日有流通市值 + 当日有收益(停牌股剔除)的股票;
+    ② 缺失暴露填 0:风格因子已截面标准化,0 = 截面均值 = 中性暴露,
+       不再要求 10 因子全覆盖(旧版 dropna 把样本从 ~5100 只缩到 ~1400 只,
+       小行业被整体剔空导致矩阵奇异/垃圾值);
+    ③ 当日全空的风格列(如 momentum 预热期)不进入当日回归;
+       行业哑变量与约束 R 基于当日最终样本自洽计算(空行业天然不出现);
+    ④ 求解带条件数防御(见 _weighted_regression_matrix),杜绝静默垃圾值。
+
 主流程 get_factor_return 按日循环,委托三个 builder 子函数:
     _build_constraint_R(industry_cap_weights)        -> 约束矩阵 R
-    _build_exposure_matrix(exposure_today, ...)      -> 因子暴露矩阵 X
+    _build_exposure_matrix(由主流程内联合构建)        -> 因子暴露矩阵 X
     _weighted_regression_matrix(X, cap_weights, R)   -> 加权矩阵 W
 
 输出: data_store/model/{version}/f_ret.csv(index=日期, 列=[country, 行业..., 风格...])
@@ -26,6 +35,10 @@ from tqdm import tqdm
 from config import get_model_dir, get_path
 from data import io as data_io
 from data.client import init_rqdatac, to_rqcode
+
+# 接近奇异的判定阈值:条件数超过此值时 inv 结果不可信(float64 有效位约 16 位,
+# 条件数 1e10 意味着结果只剩 ~6 位有效数字,再大即垃圾值区间)
+COND_THRESHOLD = 1e10
 
 
 def _sqrt_cap_weights(cap_series):
@@ -48,6 +61,7 @@ def _build_constraint_R(industry_cap_weights, n_style):
 
     参数:
         industry_cap_weights: Series, index=行业代码, value=行业市值权重
+                              (须与当日回归样本一致,空行业不应出现)
         n_style: 风格因子个数(用于确定 K 的总维度)
     返回:
         R 矩阵(K×(K-1)), K = 行业数 + 1(country) + n_style
@@ -66,34 +80,52 @@ def _build_constraint_R(industry_cap_weights, n_style):
 
 def _weighted_regression_matrix(X, cap_weights, R):
     """
-    构造因子收益率加权矩阵 W = R · (R'X'VXR')⁻¹ · R'X'V。
+    构建因子收益率加权矩阵 W = R · (R'X'VXR')⁻¹ · R'X'V。
     V = diag(市值开方归一化权重)。
 
     性能优化:V 是对角阵,用"逐行缩放 X"替代构造 n×n 全矩阵(避免 O(n²) 内存与运算),
     数学上 X'VX = Xᵀ(X⊙w),R'X'V = Rᵀ(X⊙w)ᵀ,结果与全矩阵实现完全等价。
+
+    数值防御:裸 inv 在矩阵接近奇异时不报错而返回错误值(曾导致 f_ret 出现
+    |f|>2700 的静默垃圾值)。此处先检查条件数:非有限(含 NaN/inf)返回 None;
+    超过阈值或 inv 抛 LinAlgError 时改用 pinv 最小范数解并告警。
 
     参数:
         X: 因子暴露矩阵(index=股票, columns=[country, 行业..., 风格...])
         cap_weights: 当日回归样本的市值开方归一化权重(DataFrame, 含 weight 列, index 与 X 一致)
         R: 约束矩阵(K×(K-1))
     返回:
-        W(DataFrame, index=X.columns, columns=X.index),或 None(求逆失败)
+        W(DataFrame, index=X.columns, columns=X.index),或 None(矩阵病态无法求解)
     """
     w = cap_weights["weight"].reindex(X.index).fillna(0).values   # (n,)
     Xa = X.values.astype(float)               # 转 float(行业哑变量 bool/混合 dtype 会致矩阵 object,inv 失败)
     Xv = Xa * w[:, None]                       # V@X(逐行乘 w),等价 diag(w)@X
     XtVX = Xa.T @ Xv                           # X'VX (K×K)
-    try:
-        inv = np.linalg.inv(R.T @ XtVX @ R)    # (R'X'VXR')⁻¹
-    except np.linalg.LinAlgError:
+    M = R.T @ XtVX @ R                         # (R'X'VXR') 待逆矩阵
+    cond = np.linalg.cond(M)
+    if not np.isfinite(cond):
+        print("⚠️  矩阵含 NaN/inf(条件数非有限),无法求解")
         return None
+    if cond > COND_THRESHOLD:
+        print(f"⚠️  条件数 {cond:.2e} > {COND_THRESHOLD:.0e},改用 pinv 最小范数解")
+        inv = np.linalg.pinv(M)
+    else:
+        try:
+            inv = np.linalg.inv(M)
+        except np.linalg.LinAlgError:
+            print(f"⚠️  inv 奇异(条件数 {cond:.2e}),改用 pinv 最小范数解")
+            inv = np.linalg.pinv(M)
     W = R @ inv @ (R.T @ Xv.T)                 # R·inv·R'X'V  (K×n)
-    return pd.DataFrame(W, index=X.columns, columns=X.index).round(6)
+    return pd.DataFrame(W, index=X.columns, columns=X.index)
 
 
 def get_factor_return(start_date, end_date, version="cne5"):
     """
     计算 CNE-5(或 CNE-6)因子收益率序列,落盘 f_ret.csv。
+
+    每日回归样本 = 估计域内股票(有行业 + 当日有市值 + 当日有收益),
+    缺失风格暴露按 0(中性)填充,当日全空的风格列与空行业不进入当日回归,
+    行业约束 R 与哑变量基于当日最终样本自洽计算(见模块 docstring 三层防御)。
 
     参数:
         start_date, end_date: 回归日期区间 "YYYY-MM-DD"
@@ -106,9 +138,9 @@ def get_factor_return(start_date, end_date, version="cne5"):
     stock_size_cir = data_io.load_base("stock_size_cir.csv")
 
     # 行业归属(当前快照,行业变化缓慢适用所有交易日);Wind 代码转 rqdatac 风格以对齐
-    sw_ind = pd.read_csv(os.path.join(get_path("base"), "sw_l1.csv"))
-    sw_ind["stock_code"] = sw_ind["stock_code"].apply(to_rqcode)
-    sw_ind = sw_ind.set_index("stock_code")
+    industry_map = pd.read_csv(os.path.join(get_path("base"), "industry_l1.csv"))
+    industry_map["stock_code"] = industry_map["stock_code"].apply(to_rqcode)
+    industry_map = industry_map.set_index("stock_code")[["industry_code"]]
 
     cne_path = os.path.join(get_model_dir(version), "cne_5.csv")
     cne_df = pd.read_csv(cne_path)
@@ -123,64 +155,70 @@ def get_factor_return(start_date, end_date, version="cne5"):
     style_columns = [c for c in cne_df.columns if c not in ("trade_date", "code")]
 
     f_ret_list = []
-
     for trade_date in tqdm(trade_days, desc=f"{version} 因子收益率"):
-        formatted_date = trade_date.strftime("%Y-%m-%d")
+        fd = trade_date.strftime("%Y-%m-%d")
 
-        # 当日因子暴露(长表取该日,保留 code 列便于 merge)
-        exposure_today = cne_df[cne_df["trade_date"] == trade_date].copy()
+        # 当日因子暴露(长表取该日)
+        exposure_today = cne_df.loc[
+            cne_df["trade_date"] == trade_date, ["code"] + style_columns]
         if exposure_today.empty:
             continue
-
-        # 当日全市场市值开方权重(用于行业权重 con)
+        # 当日流通市值(权重来源;缺失则该日无法加权回归)
         try:
-            scale_data = stock_size_cir.loc[formatted_date].to_frame("weight")
+            cap_row = stock_size_cir.loc[fd]
         except KeyError:
             continue
-        cap_weights_all = _sqrt_cap_weights(scale_data)
+        # 当日收益率(回归因变量;停牌股收益缺失,参与会把 NaN 传染给整日结果)
+        try:
+            day_ret = ret_data.loc[fd]
+        except KeyError:
+            continue
+        day_ret = day_ret.dropna()
 
-        # 行业归属(当日有因子暴露的股票);reset_index 让 stock_code 成为列
-        df_ind_date = sw_ind.loc[sw_ind.index.intersection(exposure_today["code"])].reset_index()
-        if "stock_code" not in df_ind_date.columns and "index" in df_ind_date.columns:
-            df_ind_date = df_ind_date.rename(columns={"index": "stock_code"})
-        dummies = pd.get_dummies(df_ind_date["industry_code"])
-        df_ind_dummies = pd.concat([df_ind_date, dummies], axis=1)
-
-        # 各行业市值权重(归一化)
-        industry_cap_weights = (
-            pd.merge(cap_weights_all, df_ind_dummies, how="left",
-                     left_index=True, right_on="stock_code")
-            .groupby("industry_code")["weight"].sum()
-        )
-
-        # ---- 约束矩阵 R(消除行业共线性)----
-        R = _build_constraint_R(industry_cap_weights, len(style_columns))
-
-        # ---- 因子暴露矩阵 X ----
-        industry_cols = ["stock_code"] + industry_cap_weights.index.to_list()
-        X = pd.merge(exposure_today, df_ind_dummies[industry_cols],
-                     how="inner", left_on="code", right_on="stock_code")
-        X["country"] = 1
-        X = X.dropna().set_index("code").drop(columns=["stock_code"])
-        if X.empty:
+        # ---- ① 估计域:行业内壳 + 当日有市值 + 当日有收益 ----
+        sample = exposure_today.merge(
+            industry_map, left_on="code", right_index=True, how="inner"
+        ).set_index("code")
+        sample = sample[sample.index.isin(day_ret.index)]
+        cap_sample = cap_row.reindex(sample.index)
+        keep = cap_sample.notna() & (cap_sample > 0)
+        sample, cap_sample = sample[keep], cap_sample[keep]
+        if sample.empty:
             continue
 
-        # 列顺序固定:country + 行业 + 风格因子(仅保留实际存在的列)
-        columns_name = [c for c in (["country"] + list(industry_cap_weights.index) + style_columns)
-                        if c in X.columns]
-        X = X[columns_name]
+        # ---- ② 风格暴露:当日全空的列剔除,其余缺失填 0(标准化后 0=中性)----
+        avail_styles = [c for c in style_columns if sample[c].notna().any()]
+        dropped_styles = sorted(set(style_columns) - set(avail_styles))
+        if dropped_styles:
+            print(f"{fd}: 风格列 {dropped_styles} 当日全空,剔除后回归")
+        styles = sample[avail_styles].fillna(0.0)
 
-        # ---- 加权矩阵 W ----
-        scale_data_x = stock_size_cir.loc[formatted_date, X.index].to_frame("weight")
-        cap_weights_x = _sqrt_cap_weights(scale_data_x)
-        W = _weighted_regression_matrix(X, cap_weights_x, R)
+        # ---- ③ 行业哑变量:基于当日最终样本(空行业天然不出现)----
+        dummies = pd.get_dummies(sample["industry_code"]).astype(float)
+        n_factors = 1 + dummies.shape[1] + len(avail_styles)
+        if len(sample) <= n_factors:
+            print(f"{fd}: 回归样本 {len(sample)} 只 ≤ 因子数 {n_factors},跳过")
+            continue
+        X = pd.concat(
+            [pd.DataFrame(1.0, index=sample.index, columns=["country"]),
+             dummies, styles],
+            axis=1,
+        )
+
+        # ---- 权重与约束 R(与 X 同一样本,自洽)----
+        weights = _sqrt_cap_weights(cap_sample)
+        industry_cap_weights = dummies.T @ weights
+        R = _build_constraint_R(industry_cap_weights, len(avail_styles))
+
+        # ---- 加权矩阵 W(带条件数防御)----
+        W = _weighted_regression_matrix(X, weights.to_frame("weight"), R)
         if W is None:
-            print(f"{formatted_date}: 矩阵求逆失败,跳过")
+            print(f"{fd}: 矩阵病态无法求解,跳过")
             continue
 
         # ---- 当日因子收益率 f = W · r ----
-        r = ret_data.loc[formatted_date, W.columns]
-        f = W.dot(r).to_frame(name=formatted_date).T
+        r = day_ret.reindex(W.columns)
+        f = W.dot(r).to_frame(name=fd).T
         f_ret_list.append(f)
 
     f_ret = pd.concat(f_ret_list) if f_ret_list else pd.DataFrame()

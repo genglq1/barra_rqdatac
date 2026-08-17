@@ -98,9 +98,9 @@ from config import get_path
 
 ret_data = data_io.load_base("stock_ret.csv")
 stock_size_cir = data_io.load_base("stock_size_cir.csv")
-sw_ind = pd.read_csv(os.path.join(get_path("base"), "sw_l1.csv"))
-sw_ind["stock_code"] = sw_ind["stock_code"].apply(to_rqcode)
-sw_ind = sw_ind.set_index("stock_code")
+industry_map = pd.read_csv(os.path.join(get_path("base"), "industry_l1.csv"))
+industry_map["stock_code"] = industry_map["stock_code"].apply(to_rqcode)
+industry_map = industry_map.set_index("stock_code")
 style_columns = [c for c in cne.columns if c not in ("trade_date", "code")]
 
 
@@ -126,7 +126,7 @@ for trade_date in test_dates:
     except KeyError:
         continue
     cap_weights_all = _sqrt_cap_weights(scale_data)
-    df_ind_date = sw_ind.loc[sw_ind.index.intersection(exposure_today["code"])].reset_index()
+    df_ind_date = industry_map.loc[industry_map.index.intersection(exposure_today["code"])].reset_index()
     if "stock_code" not in df_ind_date.columns and "index" in df_ind_date.columns:
         df_ind_date = df_ind_date.rename(columns={"index": "stock_code"})
     dummies = pd.get_dummies(df_ind_date["industry_code"])

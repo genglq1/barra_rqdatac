@@ -26,7 +26,7 @@
 import argparse
 import datetime as dt
 
-from config import get_settings
+from config import get_settings, get_start_date, get_factor_return_start_date
 from data import universe, price, valuation, financial, reference, consensus
 from factors.cne5 import registry as cne5_reg
 from factors.cne6 import registry as cne6_reg
@@ -83,14 +83,22 @@ def run_model_compose(version="cne5", start_date="2017-01-01", end_date=None):
         model_cne6.get_barra_cne6(start_date=start_date, end_date=end_date)
 
 
-def run_factor_return(version="cne5", start_date="2017-01-01", end_date=None):
-    """因子收益率回归层:WLS 截面回归 -> f_ret.csv。"""
+def run_factor_return(version="cne5", start_date=None, end_date=None):
+    """
+    因子收益率回归层:WLS 截面回归 -> f_ret.csv。
+
+    start_date 为 None 时取 config date_range.factor_return_start_date(默认 2022-01-01:
+    momentum 需 504 个交易日预热,更早的日期该风格列全空)。
+    """
     print("=" * 60)
     print(f"【步骤 4/4】因子收益率回归 ({version})")
     print("=" * 60)
 
+    if start_date is None:
+        start_date = get_factor_return_start_date()
     if end_date is None:
         end_date = dt.datetime.now().strftime("%Y-%m-%d")
+    print(f"回归区间: {start_date} ~ {end_date}")
     factor_return.get_factor_return(start_date, end_date, version=version)
 
 
@@ -101,7 +109,9 @@ def main():
     parser.add_argument("--step", default="all",
                         choices=["all", "data", "factors", "model", "factor_return"],
                         help="执行步骤(默认 all,全流程)")
-    parser.add_argument("--start", default="2010-01-01", help="起始日期")
+    parser.add_argument("--start", default=None,
+                        help="起始日期(默认:data/factors/model 取 date_range.start_date,"
+                             "factor_return 取 date_range.factor_return_start_date)")
     parser.add_argument("--end", default=None, help="截止日期(默认今天)")
     args = parser.parse_args()
 
@@ -114,13 +124,15 @@ def main():
         print()
 
     step = args.step
+    generic_start = args.start or get_start_date()
     if step in ("all", "data"):
-        run_data(start_date=args.start, end_date=args.end)
+        run_data(start_date=generic_start, end_date=args.end)
     if step in ("all", "factors"):
-        run_factors(version=args.version, start_date=args.start, end_date=args.end)
+        run_factors(version=args.version, start_date=generic_start, end_date=args.end)
     if step in ("all", "model"):
-        run_model_compose(version=args.version, start_date=args.start, end_date=args.end)
+        run_model_compose(version=args.version, start_date=generic_start, end_date=args.end)
     if step in ("all", "factor_return"):
+        # 未显式指定 --start 时用配置的 factor_return_start_date(None 透传)
         run_factor_return(version=args.version, start_date=args.start, end_date=args.end)
 
     print("\n✅ 流程完成。")
