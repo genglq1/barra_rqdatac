@@ -405,7 +405,8 @@ size -1.33 / non_linear_size +0.51(显著小盘,符合 1000 指增特征)。
 
 ```bash
 # 项目根目录执行,浏览器自动打开
-streamlit run analysis/dashboard.py
+# (注:streamlit CLI 不在 PATH 时用 python -m 形式,效果相同)
+python -m streamlit run analysis/dashboard.py
 ```
 
 三个 Tab:
