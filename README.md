@@ -51,7 +51,7 @@ barra_rqdatac/
 ├── data/            数据下载层(rqdatac,client/universe/price/valuation/financial/reference/io)
 ├── factors/         风格因子层(common 共享工具 + cne5 实现 + cne6 占位)
 ├── model/           模型层(cne5 合成 + factor_return 回归 + cne6/covariance 占位)
-├── analysis/        分析层(exposure 持仓暴露 / attribution 归因 / performance / risk_budget)
+├── analysis/        分析层(exposure 持仓暴露 / attribution 归因 / performance 业绩指标)
 ├── pipeline.py      全流程编排(支持 --version / --step)
 ├── requirements.txt
 └── README.md
@@ -64,7 +64,7 @@ barra_rqdatac/
 | `data/` | rqdatac 取数 → 透视为"日期×股票"宽表,增量更新 |
 | `factors/` | 基础宽表 → 描述因子,每个风格因子独立文件 |
 | `model/` | 描述因子 → 风格因子合成 + 因子收益率回归 |
-| `analysis/` | 下游应用:持仓暴露、收益归因、业绩指标、风险预算 |
+| `analysis/` | 下游应用:持仓暴露、收益归因、业绩指标 |
 
 ---
 
