@@ -106,8 +106,10 @@ def perform_return_attribution(nav, factor_ret, window=252, factor_num=10):
         window (int): 滚动回归窗口(交易日数,默认 252)
         factor_num (int): 风格因子个数(列末 N 个)
     返回:
-        DataFrame(index=归因日, 列=[Alpha, Country, Industry, Style]),
-        每日四项之和 = 当日净值收益(残差恒等式)
+        (attribution, style_detail):
+        attribution - DataFrame(index=归因日, 列=[Alpha, Country, Industry, Style]),
+                      每日四项之和 = 当日净值收益(残差恒等式)
+        style_detail - DataFrame(index=归因日, 列=各风格因子),逐因子当日贡献 β_i·f_i,t
     """
     if isinstance(nav, pd.DataFrame):
         nav = nav.iloc[:, 0]                       # 兼容多列输入(取首列)
@@ -128,6 +130,7 @@ def perform_return_attribution(nav, factor_ret, window=252, factor_num=10):
     industry_all = list(factor_ret.columns[1: n_total - factor_num])
 
     rows = {}
+    style_rows = {}
     for i in range(window - 1, len(fund_returns)):
         end_date = fund_returns.index[i]
         fund_window = fund_returns.iloc[i - window + 1: i + 1]
@@ -158,10 +161,13 @@ def perform_return_attribution(nav, factor_ret, window=252, factor_num=10):
 
         rows[end_date] = {"Alpha": alpha, "Country": country,
                           "Industry": industry, "Style": style}
+        style_rows[end_date] = betas[style_cols] * fr_today.reindex(style_cols)
 
     attribution = pd.DataFrame.from_dict(rows, orient="index")
     attribution.index.name = "date"
-    return attribution
+    style_detail = pd.DataFrame(style_rows).T
+    style_detail.index.name = "date"
+    return attribution, style_detail
 
 
 def plot_cumulative_returns(attribution, nav, out_path=None, show=False):
@@ -192,6 +198,44 @@ def plot_cumulative_returns(attribution, nav, out_path=None, show=False):
     return cum
 
 
+# 风格因子图中文名(缺失时回退英文列名)
+STYLE_LABELS = {
+    "size": "市值", "beta": "贝塔", "momentum": "动量", "non_linear_size": "非线性市值",
+    "book_to_price": "账面市值比", "residual_volatility": "残差波动",
+    "liquidity": "流动性", "earnings_yield": "盈利收益率", "growth": "成长",
+    "leverage": "杠杆",
+}
+
+
+def plot_style_returns(style_detail, out_path=None, show=False):
+    """
+    风格因子累计收益贡献图:10 个风格因子各自 β_i·f_i 的累计曲线 + 风格合计。
+    返回累计贡献 DataFrame。
+    """
+    cum = (1 + style_detail).cumprod() - 1
+    total = (1 + style_detail.sum(axis=1)).cumprod() - 1
+
+    plt.figure(figsize=(12, 8))
+    for col in style_detail.columns:
+        plt.plot(cum.index, cum[col].values,
+                 label=STYLE_LABELS.get(col, col), linewidth=1.2)
+    plt.plot(total.index, total.values, label="风格合计",
+             color="black", linewidth=2.2, linestyle="--")
+    plt.axhline(0, color="grey", linewidth=0.8)
+    plt.legend(ncol=2)
+    plt.title("风格因子累计收益贡献")
+    plt.xlabel("日期")
+    plt.ylabel("累计贡献")
+    plt.tight_layout()
+    if out_path:
+        plt.savefig(out_path, dpi=150)
+        print(f"风格归因图已保存: {out_path}")
+    if show:
+        plt.show()
+    plt.close()
+    return cum
+
+
 def run(nav_file, factor_return_file=None, window=252, factor_num=10,
         save=True, show=False):
     """
@@ -211,8 +255,8 @@ def run(nav_file, factor_return_file=None, window=252, factor_num=10,
         factor_return_file = os.path.join(get_model_dir("cne5"), "f_ret.csv")
     factor_ret = pd.read_csv(factor_return_file, index_col=0, parse_dates=True)
 
-    attribution = perform_return_attribution(nav, factor_ret,
-                                             window=window, factor_num=factor_num)
+    attribution, style_detail = perform_return_attribution(
+        nav, factor_ret, window=window, factor_num=factor_num)
     print(f"归因区间: {attribution.index.min().date()} ~ {attribution.index.max().date()}"
           f"(窗口 {window} 日,共 {len(attribution)} 个归因日)")
 
@@ -226,6 +270,9 @@ def run(nav_file, factor_return_file=None, window=252, factor_num=10,
     cum = plot_cumulative_returns(attribution, nav, show=show,
                                   out_path=None if not save else
                                   os.path.join(_analysis_dir(), _out_base(nav_file) + "_归因.png"))
+    style_cum = plot_style_returns(style_detail, show=show,
+                                   out_path=None if not save else
+                                   os.path.join(_analysis_dir(), _out_base(nav_file) + "_风格归因.png"))
 
     if save:
         out_dir = _analysis_dir()
@@ -233,6 +280,8 @@ def run(nav_file, factor_return_file=None, window=252, factor_num=10,
                            encoding="utf-8-sig")
         cum.to_csv(os.path.join(out_dir, _out_base(nav_file) + "_累计贡献.csv"),
                    encoding="utf-8-sig")
+        style_detail.to_csv(os.path.join(out_dir, _out_base(nav_file) + "_风格贡献明细.csv"),
+                            encoding="utf-8-sig")
         print(f"归因明细已保存: {os.path.join(out_dir, _out_base(nav_file) + '_归因明细.csv')}")
 
     # 年化贡献摘要(日均值 × 242)
@@ -243,6 +292,10 @@ def run(nav_file, factor_return_file=None, window=252, factor_num=10,
         print(f"  {k:10s} {v:+.2%}")
     print(f"  合计       {(ann.sum()):+.2%}(对照净值年化 "
           f"{fund_ret.mean() * 242:+.2%})")
+    ann_style = style_detail.mean() * 242
+    print("\n年化风格贡献排序:")
+    for k, v in ann_style.sort_values(ascending=False).items():
+        print(f"  {STYLE_LABELS.get(k, k)}({k}) {v:+.2%}")
     return attribution, cum
 
 
